@@ -28,6 +28,24 @@ migrate = Migrate(app,db)
 # Models.
 #----------------------------------------------------------------------------#
 
+class Genre(db.Model):
+    __tablename__ = 'Genre'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String)
+
+artist_genre_table = db.Table('artist_genre_table',
+    db.Column('genre_id', db.Integer, db.ForeignKey('Genre.id'), primary_key=True),
+    db.Column('artist_id', db.Integer, db.ForeignKey('Artist.id'), primary_key=True)
+)
+
+venue_genre_table = db.Table('venue_genre_table',
+    db.Column('genre_id', db.Integer, db.ForeignKey('Genre.id'), primary_key=True),
+    db.Column('venue_id', db.Integer, db.ForeignKey('Venue.id'), primary_key=True)
+)
+    
+    
+# Venue is the parent (one-to-many) of a Show (Artist is also a foreign key, in def. of Show)
 class Venue(db.Model):
     __tablename__ = 'Venue'
 
@@ -41,7 +59,18 @@ class Venue(db.Model):
     facebook_link = db.Column(db.String(120))
 
     # TODO: implement any missing fields, as a database migration using Flask-Migrate
+    genres = db.relationship('Genre', secondary=venue_genre_table, backref=db.backref('venues'))
 
+    website = db.Column(db.String(120))
+    seeking_talent = db.Column(db.Boolean, default=False)
+    seeking_description = db.Column(db.String(120))
+
+    shows = db.relationship('Show', backref='venue', lazy=True)
+
+    def __repr__(self):
+        return f'<Venue {self.id} {self.name}>'
+
+# Artist is the parent (one-to-many) of a Show (Venue is also a foreign key, in def. of Show)
 class Artist(db.Model):
     __tablename__ = 'Artist'
 
@@ -55,8 +84,30 @@ class Artist(db.Model):
     facebook_link = db.Column(db.String(120))
 
     # TODO: implement any missing fields, as a database migration using Flask-Migrate
+    genres = db.relationship('Genre', secondary=artist_genre_table, backref=db.backref('artists'))
+
+    website = db.Column(db.String(120))
+    seeking_venue = db.Column(db.Boolean, default=False)
+    seeking_description = db.Column(db.String(120))
+
+    shows = db.relationship('Show', backref='artist', lazy=True)   
+
+    def __repr__(self):
+        return f'<Artist {self.id} {self.name}>'
 
 # TODO Implement Show and Artist models, and complete all model relationships and properties, as a database migration.
+class Show(db.Model):
+    __tablename__ = 'Show'
+
+    id = db.Column(db.Integer, primary_key=True)
+    start_time = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)   
+
+    # Foreign key is the tablename.pk
+    artist_id = db.Column(db.Integer, db.ForeignKey('Artist.id'), nullable=False)   
+    venue_id = db.Column(db.Integer, db.ForeignKey('Venue.id'), nullable=False)
+
+    def __repr__(self):
+        return f'<Show {self.id} {self.start_time} artist_id={self.artist_id} venue_id={self.venue_id}>'
 
 #----------------------------------------------------------------------------#
 # Filters.
@@ -68,9 +119,9 @@ def format_datetime(value, format='medium'):
       format="EEEE MMMM, d, y 'at' h:mma"
   elif format == 'medium':
       format="EE MM, dd, y h:mma"
-  return babel.dates.format_datetime(date, format, locale='en')
-
+  return babel.dates.format_datetime(date, format)
 app.jinja_env.filters['datetime'] = format_datetime
+
 
 #----------------------------------------------------------------------------#
 # Controllers.
@@ -222,27 +273,6 @@ def create_venue_form():
 def create_venue_submission():
   # TODO: insert form data as a new Venue record in the db, instead
   # TODO: modify data to be the data object returned from db insertion
-
-  fault = False
-  try:
-    name = request.form['name']
-    city= request.form['city']
-    state = request.form['state']
-  
-
-    venue = Venue(name=name, city=city, state=state)
-    db.session.add(venue)
-    db.session.commit()
-  except:
-    fault = True
-    db.session.rollback() 
-    print(sys.exc_info()) 
-  finally: 
-    db.session.close()  
-  if fault:
-        flash('An error occurred. Venue ' + request.form['name']+ ' could not be listed.')
-  else:
-     flash('Venue ' + request.form['name'] + ' was successfully listed!')
   return render_template('pages/home.html')
 
   # on successful db insert, flash success
@@ -499,15 +529,32 @@ def create_shows():
 
 @app.route('/shows/create', methods=['POST'])
 def create_show_submission():
-  # called to create new shows in the db, upon submitting new show listing form
-  # TODO: insert form data as a new Show record in the db, instead
+  form = ShowForm()
 
-  # on successful db insert, flash success
-  flash('Show was successfully listed!')
-  # TODO: on unsuccessful db insert, flash an error instead.
-  # e.g., flash('An error occurred. Show could not be listed.')
-  # see: http://flask.pocoo.org/docs/1.0/patterns/flashing/
+  artist_id = form.artist_id.data.strip()
+  venue_id = form.venue_id.data.strip()
+  start_time = form.start_time.data
+
+  error_in_insert = False
+  
+  try:
+    new_show = Show(start_time=start_time, artist_id=artist_id, venue_id=venue_id)
+    db.session.add(new_show)
+    db.session.commit()
+  except:
+    error_in_insert = True
+    print(sys.exc_info())
+    db.session.rollback()
+  finally:
+    db.session.close()
+
+  if error_in_insert:
+    flash(f'An error occurred.  Show could not be listed.')
+    print("Error in create_show_submission()")
+  else:
+    flash('Show was successfully listed!')
   return render_template('pages/home.html')
+
 
 @app.errorhandler(404)
 def not_found_error(error):
